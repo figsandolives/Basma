@@ -43,9 +43,18 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--text);min
 .scan-line{position:absolute;left:26px;right:26px;height:3px;background:#bbf7d0;box-shadow:0 0 18px #bbf7d0;top:20px;opacity:0}
 .fingerprint-button.scanning .scan-line{opacity:1;animation:scan 1.35s ease-in-out infinite}
 .fingerprint-button.scanning{background:radial-gradient(circle at 50% 35%,#34d399,#10b981 58%,#047857)}
+.fingerprint-button.checked-in{background:radial-gradient(circle at 50% 35%,#6ee7b7,#10b981 58%,#047857);box-shadow:0 18px 42px rgba(16,185,129,.35)}
 .fingerprint-label{position:relative;z-index:2;max-width:90px;line-height:1.4}
 .status{font-size:14px;color:var(--text2);min-height:24px;font-weight:700}
 .status.ok{color:var(--green)}
+.status.err{color:var(--red)}
+.exit-panel{display:none;margin-top:14px;padding:14px;background:var(--panel2);border:1px solid var(--border);border-radius:14px;text-align:right}
+.exit-panel.show{display:block}
+.exit-title{font-size:14px;font-weight:900;margin-bottom:10px}
+.exit-actions{display:flex;gap:8px;flex-wrap:wrap}
+.mini-btn{border:0;border-radius:10px;padding:10px 14px;font-family:'Tajawal',sans-serif;font-weight:900;cursor:pointer;background:var(--accent);color:#fff}
+.mini-btn.secondary{background:#fff;color:var(--text);border:1px solid var(--border)}
+.permission-input{width:100%;margin:10px 0;font-family:'Tajawal',sans-serif}
 @keyframes scan{0%{top:24px}50%{top:153px}100%{top:24px}}
 @media (max-width:420px){
   .screen{padding:14px}
@@ -93,6 +102,18 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--text);min
         <span class="fingerprint-label">ضع اصبعك هنا</span>
       </button>
       <div class="status" id="punchStatus">جاهز لتسجيل البصمة</div>
+      <div class="exit-panel" id="exitPanel">
+        <div class="exit-title" id="exitQuestion">هل لديك إذن خروج؟</div>
+        <div class="exit-actions" id="exitQuestionActions">
+          <button class="mini-btn" onclick="showExitUpload()">نعم</button>
+          <button class="mini-btn secondary" onclick="hideExitPanel()">لا</button>
+        </div>
+        <div id="exitUpload" class="hidden">
+          <div class="exit-title">ارجو ارفاق صورة من اذن الخروج</div>
+          <input class="permission-input" id="exitPermissionFile" type="file" accept="image/*" capture="environment">
+          <button class="mini-btn" onclick="attachExitPermission()">إرفاق</button>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -113,16 +134,17 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
-let hrData = {employees:{},fingerprintCodes:{},schedules:{}};
+let hrData = {employees:{},employers:{},fingerprintCodes:{},schedules:{}};
 let punches = [];
 let currentEmployee = null;
 let scanning = false;
+let pendingExitPermissionImage = '';
 
 const dayKeys = ['sun','mon','tue','wed','thu','fri','sat'];
-const branchNames = {surra:'فرع السرة',abulhasania:'فرع أبو الحصانية',yarmouk:'فرع اليرموك'};
+const branchNames = {surra:'فرع السرة',abulhasania:'فرع أبو الحصانية',yarmouk:'فرع اليرموك',fixed:'دوام ثابت'};
 
 db.ref('hrData').on('value', snap=>{
-  hrData = snap.val() || {employees:{},fingerprintCodes:{},schedules:{}};
+  hrData = snap.val() || {employees:{},employers:{},fingerprintCodes:{},schedules:{}};
   if(currentEmployee){
     currentEmployee = hrData.employees?.[currentEmployee.id] || currentEmployee;
     renderApp();
@@ -196,11 +218,104 @@ function getTodayScheduleItems(){
   if(!currentEmployee) return [];
   const key = dayKeys[new Date().getDay()];
   const schedule = hrData.schedules?.[key] || {};
-  return Object.entries(schedule.zones || {}).flatMap(([zone,items])=>
+  const scheduledItems = Object.entries(schedule.zones || {}).flatMap(([zone,items])=>
     (items || [])
       .filter(item=>item.empId === currentEmployee.id)
       .map(item=>({...item,zone}))
   ).sort((a,b)=>timeToMin(a.from)-timeToMin(b.from));
+  if(scheduledItems.length) return scheduledItems;
+  if(currentEmployee.schedType === 'fixed' && Array.isArray(currentEmployee.segments)){
+    return currentEmployee.segments.map((item,index)=>({
+      ...item,
+      zone:'fixed',
+      fixedIndex:index,
+      empId:currentEmployee.id,
+      empName:currentEmployee.name,
+      employerId:item.employerId || currentEmployee.employerId || '',
+      employerName:item.employerName || currentEmployee.employer || ''
+    })).sort((a,b)=>timeToMin(a.from)-timeToMin(b.from));
+  }
+  return [];
+}
+
+function getTodayPunches(){
+  const date = formatDateInput(new Date());
+  return punches
+    .filter(punch=>punch.empId === currentEmployee?.id && punch.date === date)
+    .sort((a,b)=>String(a.iso || '').localeCompare(String(b.iso || '')));
+}
+
+function isCheckedIn(){
+  return getTodayPunches().length % 2 === 1;
+}
+
+function getScheduledEndMinutes(){
+  const items = getTodayScheduleItems();
+  if(!items.length) return null;
+  return Math.max(...items.map(item=>timeToMin(item.to)));
+}
+
+function canExitNormally(){
+  const endMinutes = getScheduledEndMinutes();
+  if(endMinutes === null) return false;
+  const now = new Date();
+  const nowMinutes = now.getHours()*60 + now.getMinutes();
+  return nowMinutes >= endMinutes - 15;
+}
+
+function getCurrentDutyItem(){
+  const items = getTodayScheduleItems();
+  if(!items.length) return null;
+  const now = new Date();
+  const nowMinutes = now.getHours()*60 + now.getMinutes();
+  return items.find(item=>nowMinutes >= timeToMin(item.from) && nowMinutes <= timeToMin(item.to))
+    || items.find(item=>nowMinutes < timeToMin(item.from))
+    || items[items.length-1];
+}
+
+function getCurrentEmployer(dutyItem=getCurrentDutyItem()){
+  const employers = Object.values(hrData.employers || {});
+  return employers.find(employer=>employer.id === dutyItem?.employerId || employer.name === dutyItem?.employerName)
+    || employers.find(employer=>employer.id === currentEmployee?.employerId || employer.name === currentEmployee?.employer);
+}
+
+function distanceMeters(a,b){
+  const earth = 6371000;
+  const toRad = value=>value * Math.PI / 180;
+  const dLat = toRad(b.lat-a.lat);
+  const dLng = toRad(b.lng-a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;
+  return earth * 2 * Math.atan2(Math.sqrt(h),Math.sqrt(1-h));
+}
+
+function getDeviceLocation(){
+  return new Promise((resolve,reject)=>{
+    if(!navigator.geolocation){
+      reject(new Error('الموقع غير مدعوم في هذا الجهاز'));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos=>resolve({lat:pos.coords.latitude,lng:pos.coords.longitude,accuracy:pos.coords.accuracy}),
+      ()=>reject(new Error('اسمح للتطبيق بالوصول إلى الموقع')),
+      {enableHighAccuracy:true,timeout:12000,maximumAge:0}
+    );
+  });
+}
+
+async function ensureInsideEmployerZone(){
+  const items = getTodayScheduleItems();
+  if(!items.length) throw new Error('لا يوجد دوام مسجل لك اليوم');
+  const dutyItem = getCurrentDutyItem();
+  const employer = getCurrentEmployer(dutyItem);
+  if(!employer?.location) throw new Error('لم يتم تحديد زون جهة العمل');
+  const current = await getDeviceLocation();
+  const center = {lat:Number(employer.location.lat),lng:Number(employer.location.lng)};
+  const radius = Number(employer.zoneRadius) || 150;
+  const distance = distanceMeters(current,center);
+  if(distance > radius) throw new Error(`أنت خارج زون الفرع بمسافة ${Math.round(distance)} متر`);
+  return {lat:current.lat,lng:current.lng,accuracy:current.accuracy,distance:Math.round(distance),zoneRadius:radius,employerId:employer.id,employerName:employer.name,dutyFrom:dutyItem?.from || '',dutyTo:dutyItem?.to || '',zone:dutyItem?.zone || ''};
 }
 
 function renderApp(){
@@ -211,50 +326,113 @@ function renderApp(){
   document.getElementById('scheduleCards').innerHTML = items.length ? items.map(item=>`
     <div class="task-card">
       <div class="task-branch">${branchNames[item.zone] || item.zone}</div>
+      <div class="task-text" style="font-weight:800;color:var(--text)">${item.employerName || currentEmployee.employer || ''}</div>
       <div class="task-time">${formatTimeValue(item.from)} إلى ${formatTimeValue(item.to)}</div>
       <div class="task-text">${(item.tasks || []).join(' + ') || 'بدون مهام محددة'}</div>
     </div>
   `).join('') : '<div class="empty">لا يوجد دوام مسجل لك اليوم</div>';
+  renderPunchButtonState();
 }
 
 async function startPunch(){
   if(scanning || !currentEmployee) return;
+  const checkedIn = isCheckedIn();
+  let type = checkedIn ? 'out' : 'in';
+  if(checkedIn && !canExitNormally() && !pendingExitPermissionImage){
+    showExitPanel();
+    return;
+  }
   scanning = true;
   const button = document.getElementById('fingerprintButton');
   const status = document.getElementById('punchStatus');
   button.classList.add('scanning');
+  button.classList.remove('checked-in');
   status.className = 'status';
-  status.textContent = 'جاري تحليل البصمة...';
+  status.textContent = 'جاري التحقق من الموقع...';
   setTimeout(async ()=>{
     const now = new Date();
     const date = formatDateInput(now);
     const time = formatTimeInput(now);
-    const todayPunches = punches
-      .filter(punch=>punch.empId === currentEmployee.id && punch.date === date)
-      .sort((a,b)=>String(a.iso || '').localeCompare(String(b.iso || '')));
-    const type = todayPunches.length % 2 === 0 ? 'in' : 'out';
     try{
-      await db.ref('fingerprintPunches').push({
+      const location = await ensureInsideEmployerZone();
+      status.textContent = 'جاري تحليل البصمة...';
+      const payload = {
         empId:currentEmployee.id,
         empName:currentEmployee.name,
         date,
         time,
         iso:now.toISOString(),
         type,
+        location,
         createdAt:firebase.database.ServerValue.TIMESTAMP
-      });
+      };
+      if(type === 'out' && pendingExitPermissionImage){
+        payload.exitPermission = true;
+        payload.exitPermissionImage = pendingExitPermissionImage;
+      }
+      const ref = await db.ref('fingerprintPunches').push(payload);
+      punches.push({id:ref.key,...payload});
+      pendingExitPermissionImage = '';
+      hideExitPanel();
       status.className = 'status ok';
       status.textContent = type === 'in' ? 'تم تسجيل بصمة الدخول' : 'تم تسجيل بصمة الخروج';
       speakThanks();
     } catch(err){
       console.error(err);
-      status.className = 'status';
-      status.textContent = 'تعذر تسجيل البصمة';
+      status.className = 'status err';
+      status.textContent = err.message || 'تعذر تسجيل البصمة';
     } finally {
       button.classList.remove('scanning');
       scanning = false;
+      renderPunchButtonState();
     }
   },1500);
+}
+
+function renderPunchButtonState(){
+  const button = document.getElementById('fingerprintButton');
+  const label = button.querySelector('.fingerprint-label');
+  const checkedIn = isCheckedIn();
+  button.classList.toggle('checked-in', checkedIn);
+  if(checkedIn){
+    label.textContent = pendingExitPermissionImage ? 'بصمة خروج بإذن' : 'تم تسجيل الدخول';
+    document.getElementById('punchStatus').textContent = canExitNormally() ? 'يمكنك تسجيل بصمة الخروج الآن' : 'لا يمكن تسجيل الخروج إلا بإذن أو قبل نهاية الدوام ب 15 دقيقة';
+  } else {
+    label.textContent = 'ضع اصبعك هنا';
+  }
+}
+
+function showExitPanel(){
+  document.getElementById('exitPanel').classList.add('show');
+  document.getElementById('exitQuestionActions').classList.remove('hidden');
+  document.getElementById('exitUpload').classList.add('hidden');
+}
+
+function hideExitPanel(){
+  document.getElementById('exitPanel').classList.remove('show');
+}
+
+function showExitUpload(){
+  document.getElementById('exitQuestionActions').classList.add('hidden');
+  document.getElementById('exitUpload').classList.remove('hidden');
+}
+
+function attachExitPermission(){
+  const file = document.getElementById('exitPermissionFile').files[0];
+  if(!file){
+    document.getElementById('punchStatus').className = 'status err';
+    document.getElementById('punchStatus').textContent = 'ارفق صورة إذن الخروج أولاً';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = e=>{
+    pendingExitPermissionImage = e.target.result;
+    hideExitPanel();
+    document.getElementById('punchStatus').className = 'status ok';
+    document.getElementById('punchStatus').textContent = 'تم إرفاق إذن الخروج، اضغط بصمة خروج';
+    renderPunchButtonState();
+  };
+  reader.readAsDataURL(file);
 }
 
 function speakThanks(){
