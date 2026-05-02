@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>تطبيق البصمة</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f4f7fb;--panel:#ffffff;--panel2:#eef2f7;--text:#0f172a;--text2:#64748b;
+  --accent:#2563eb;--green:#10b981;--red:#ef4444;--border:rgba(15,23,42,.1);
+  --shadow:0 18px 45px rgba(15,23,42,.12);--radius:14px;
+}
+body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.screen{min-height:100vh;padding:22px;display:flex;align-items:center;justify-content:center}
+.hidden{display:none!important}
+.login-card,.app-shell{width:100%;max-width:430px;background:var(--panel);border:1px solid var(--border);border-radius:24px;box-shadow:var(--shadow);padding:24px}
+.brand{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+.brand-icon{width:52px;height:52px;border-radius:16px;background:linear-gradient(135deg,var(--accent),#1d4ed8);display:flex;align-items:center;justify-content:center;color:#fff;font-size:27px;font-weight:900}
+.brand h1{font-size:23px;font-weight:900}
+.brand p{font-size:13px;color:var(--text2);margin-top:2px}
+.label{font-size:13px;color:var(--text2);margin-bottom:8px;display:block}
+.input{width:100%;height:52px;border:1px solid var(--border);background:var(--panel2);border-radius:12px;padding:0 14px;font-family:Arial,sans-serif;font-weight:900;font-size:22px;letter-spacing:2px;direction:ltr;text-align:center;color:var(--text);outline:none}
+.input:focus{border-color:var(--accent);box-shadow:0 0 0 4px rgba(37,99,235,.14)}
+.btn{width:100%;height:52px;border:0;border-radius:12px;background:var(--accent);color:#fff;font-family:'Tajawal',sans-serif;font-size:17px;font-weight:900;margin-top:14px;cursor:pointer}
+.error{min-height:22px;margin-top:10px;color:var(--red);font-size:13px;text-align:center}
+.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+.hello{font-size:21px;font-weight:900}
+.sub{font-size:13px;color:var(--text2);margin-top:2px}
+.logout{border:1px solid var(--border);background:var(--panel2);color:var(--text);border-radius:10px;padding:8px 12px;font-family:'Tajawal',sans-serif;font-weight:700}
+.schedule-box{background:var(--panel2);border:1px solid var(--border);border-radius:18px;padding:14px;margin-bottom:18px}
+.schedule-title{font-size:15px;font-weight:900;margin-bottom:12px}
+.schedule-cards{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px}
+.task-card{min-width:190px;background:#fff;border:1px solid var(--border);border-radius:14px;padding:13px;box-shadow:0 8px 18px rgba(15,23,42,.08)}
+.task-branch{font-size:15px;font-weight:900;color:var(--accent);margin-bottom:6px}
+.task-time{font-size:14px;font-weight:800;margin-bottom:5px}
+.task-text{font-size:12px;color:var(--text2);line-height:1.6}
+.empty{font-size:13px;color:var(--text2);padding:12px;text-align:center}
+.fingerprint-panel{text-align:center;background:#fff;border:1px solid var(--border);border-radius:20px;padding:20px}
+.fingerprint-button{width:180px;height:180px;border-radius:50%;border:0;margin:10px auto 12px;background:radial-gradient(circle at 50% 35%,#60a5fa,#2563eb 58%,#1e40af);box-shadow:0 18px 42px rgba(37,99,235,.35);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;color:#fff;font-weight:900;font-size:16px;font-family:'Tajawal',sans-serif;touch-action:manipulation}
+.fingerprint-lines{position:absolute;inset:32px;border-radius:50%;opacity:.8;background:repeating-radial-gradient(circle at center,transparent 0 8px,rgba(255,255,255,.5) 9px 10px)}
+.scan-line{position:absolute;left:26px;right:26px;height:3px;background:#bbf7d0;box-shadow:0 0 18px #bbf7d0;top:20px;opacity:0}
+.fingerprint-button.scanning .scan-line{opacity:1;animation:scan 1.35s ease-in-out infinite}
+.fingerprint-button.scanning{background:radial-gradient(circle at 50% 35%,#34d399,#10b981 58%,#047857)}
+.fingerprint-label{position:relative;z-index:2;max-width:90px;line-height:1.4}
+.status{font-size:14px;color:var(--text2);min-height:24px;font-weight:700}
+.status.ok{color:var(--green)}
+@keyframes scan{0%{top:24px}50%{top:153px}100%{top:24px}}
+@media (max-width:420px){
+  .screen{padding:14px}
+  .login-card,.app-shell{padding:18px;border-radius:20px}
+  .fingerprint-button{width:164px;height:164px}
+}
+</style>
+</head>
+<body>
+<section class="screen" id="loginScreen">
+  <div class="login-card">
+    <div class="brand">
+      <div class="brand-icon">HR</div>
+      <div>
+        <h1>تطبيق البصمة</h1>
+        <p>أدخل رمزك الخاص لتسجيل الحضور والانصراف</p>
+      </div>
+    </div>
+    <label class="label" for="codeInput">رمز الدخول</label>
+    <input class="input" id="codeInput" inputmode="numeric" autocomplete="one-time-code" oninput="normalizeCode(this)" onkeydown="if(event.key==='Enter') login()">
+    <button class="btn" onclick="login()">دخول</button>
+    <div class="error" id="loginError"></div>
+  </div>
+</section>
+
+<section class="screen hidden" id="appScreen">
+  <div class="app-shell">
+    <div class="top">
+      <div>
+        <div class="hello" id="helloName">مرحباً</div>
+        <div class="sub" id="todayText"></div>
+      </div>
+      <button class="logout" onclick="logout()">خروج</button>
+    </div>
+
+    <div class="schedule-box">
+      <div class="schedule-title">دوامك اليوم</div>
+      <div class="schedule-cards" id="scheduleCards"></div>
+    </div>
+
+    <div class="fingerprint-panel">
+      <button class="fingerprint-button" id="fingerprintButton" onpointerdown="startPunch()">
+        <span class="fingerprint-lines"></span>
+        <span class="scan-line"></span>
+        <span class="fingerprint-label">ضع اصبعك هنا</span>
+      </button>
+      <div class="status" id="punchStatus">جاهز لتسجيل البصمة</div>
+    </div>
+  </div>
+</section>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyC5aYsmT1qUJd5D8GVh5WlIlLeiT35t8WQ",
+  authDomain: "hrpro-f80e7.firebaseapp.com",
+  databaseURL: "https://hrpro-f80e7-default-rtdb.firebaseio.com",
+  projectId: "hrpro-f80e7",
+  storageBucket: "hrpro-f80e7.firebasestorage.app",
+  messagingSenderId: "999134303706",
+  appId: "1:999134303706:web:a9f0b7bacb6ba796f55ce3",
+  measurementId: "G-JFC4SPKXDK"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+let hrData = {employees:{},fingerprintCodes:{},schedules:{}};
+let punches = [];
+let currentEmployee = null;
+let scanning = false;
+
+const dayKeys = ['sun','mon','tue','wed','thu','fri','sat'];
+const branchNames = {surra:'فرع السرة',abulhasania:'فرع أبو الحصانية',yarmouk:'فرع اليرموك'};
+
+db.ref('hrData').on('value', snap=>{
+  hrData = snap.val() || {employees:{},fingerprintCodes:{},schedules:{}};
+  if(currentEmployee){
+    currentEmployee = hrData.employees?.[currentEmployee.id] || currentEmployee;
+    renderApp();
+  }
+});
+
+db.ref('fingerprintPunches').on('value', snap=>{
+  punches = Object.entries(snap.val() || {}).map(([id,value])=>({id,...value}));
+});
+
+function normalizeDigits(value){
+  return String(value ?? '')
+    .replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))
+    .replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d));
+}
+
+function normalizeCode(input){
+  input.value = normalizeDigits(input.value).replace(/[^0-9]/g,'');
+}
+
+function formatDateInput(date=new Date()){
+  const y = date.getFullYear();
+  const m = String(date.getMonth()+1).padStart(2,'0');
+  const d = String(date.getDate()).padStart(2,'0');
+  return `${y}-${m}-${d}`;
+}
+
+function formatTimeInput(date=new Date()){
+  return `${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}`;
+}
+
+function formatTimeValue(time){
+  const [hourPart,minutePart='0'] = String(time).split(':');
+  const hour = parseInt(hourPart,10);
+  const minute = parseInt(minutePart,10);
+  const suffix = hour < 12 ? 'ص' : 'م';
+  const displayHour = hour % 12 || 12;
+  return minute ? `${displayHour}:${String(minute).padStart(2,'0')}${suffix}` : `${displayHour}${suffix}`;
+}
+
+function timeToMin(time){
+  const [h,m] = String(time || '00:00').split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+function login(){
+  const code = document.getElementById('codeInput').value.trim();
+  const match = Object.entries(hrData.fingerprintCodes || {}).find(([,savedCode])=>String(savedCode) === code);
+  if(!match){
+    document.getElementById('loginError').textContent = 'رمز الدخول غير صحيح';
+    return;
+  }
+  currentEmployee = hrData.employees?.[match[0]];
+  if(!currentEmployee){
+    document.getElementById('loginError').textContent = 'لم يتم العثور على بيانات الموظف';
+    return;
+  }
+  document.getElementById('loginScreen').classList.add('hidden');
+  document.getElementById('appScreen').classList.remove('hidden');
+  renderApp();
+}
+
+function logout(){
+  currentEmployee = null;
+  document.getElementById('codeInput').value = '';
+  document.getElementById('loginScreen').classList.remove('hidden');
+  document.getElementById('appScreen').classList.add('hidden');
+}
+
+function getTodayScheduleItems(){
+  if(!currentEmployee) return [];
+  const key = dayKeys[new Date().getDay()];
+  const schedule = hrData.schedules?.[key] || {};
+  return Object.entries(schedule.zones || {}).flatMap(([zone,items])=>
+    (items || [])
+      .filter(item=>item.empId === currentEmployee.id)
+      .map(item=>({...item,zone}))
+  ).sort((a,b)=>timeToMin(a.from)-timeToMin(b.from));
+}
+
+function renderApp(){
+  const firstName = String(currentEmployee?.name || '').split(/\s+/)[0] || 'موظفنا';
+  document.getElementById('helloName').textContent = `مرحباً ${firstName}`;
+  document.getElementById('todayText').textContent = new Date().toLocaleDateString('ar-KW',{weekday:'long',day:'numeric',month:'numeric'});
+  const items = getTodayScheduleItems();
+  document.getElementById('scheduleCards').innerHTML = items.length ? items.map(item=>`
+    <div class="task-card">
+      <div class="task-branch">${branchNames[item.zone] || item.zone}</div>
+      <div class="task-time">${formatTimeValue(item.from)} إلى ${formatTimeValue(item.to)}</div>
+      <div class="task-text">${(item.tasks || []).join(' + ') || 'بدون مهام محددة'}</div>
+    </div>
+  `).join('') : '<div class="empty">لا يوجد دوام مسجل لك اليوم</div>';
+}
+
+async function startPunch(){
+  if(scanning || !currentEmployee) return;
+  scanning = true;
+  const button = document.getElementById('fingerprintButton');
+  const status = document.getElementById('punchStatus');
+  button.classList.add('scanning');
+  status.className = 'status';
+  status.textContent = 'جاري تحليل البصمة...';
+  setTimeout(async ()=>{
+    const now = new Date();
+    const date = formatDateInput(now);
+    const time = formatTimeInput(now);
+    const todayPunches = punches
+      .filter(punch=>punch.empId === currentEmployee.id && punch.date === date)
+      .sort((a,b)=>String(a.iso || '').localeCompare(String(b.iso || '')));
+    const type = todayPunches.length % 2 === 0 ? 'in' : 'out';
+    try{
+      await db.ref('fingerprintPunches').push({
+        empId:currentEmployee.id,
+        empName:currentEmployee.name,
+        date,
+        time,
+        iso:now.toISOString(),
+        type,
+        createdAt:firebase.database.ServerValue.TIMESTAMP
+      });
+      status.className = 'status ok';
+      status.textContent = type === 'in' ? 'تم تسجيل بصمة الدخول' : 'تم تسجيل بصمة الخروج';
+      speakThanks();
+    } catch(err){
+      console.error(err);
+      status.className = 'status';
+      status.textContent = 'تعذر تسجيل البصمة';
+    } finally {
+      button.classList.remove('scanning');
+      scanning = false;
+    }
+  },1500);
+}
+
+function speakThanks(){
+  const firstName = String(currentEmployee?.name || '').split(/\s+/)[0] || '';
+  if(!('speechSynthesis' in window)) return;
+  const utterance = new SpeechSynthesisUtterance(`شكراً لك يا ${firstName}`);
+  utterance.lang = 'ar-KW';
+  utterance.rate = .95;
+  speechSynthesis.cancel();
+  speechSynthesis.speak(utterance);
+}
+</script>
+</body>
+</html>
