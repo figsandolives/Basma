@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>تطبيق البصمة</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2310b981'/%3E%3Cpath d='M20 32c0-6.6 5.4-12 12-12s12 5.4 12 12' fill='none' stroke='white' stroke-width='5' stroke-linecap='round'/%3E%3Cpath d='M24 38c0-4.4 3.6-8 8-8s8 3.6 8 8' fill='none' stroke='white' stroke-width='5' stroke-linecap='round'/%3E%3Cpath d='M32 40v8' stroke='white' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -38,11 +39,15 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--text);min
 .task-text{font-size:12px;color:var(--text2);line-height:1.6}
 .empty{font-size:13px;color:var(--text2);padding:12px;text-align:center}
 .fingerprint-panel{text-align:center;background:#fff;border:1px solid var(--border);border-radius:20px;padding:20px}
-.fingerprint-button{width:180px;height:180px;border-radius:50%;border:0;margin:10px auto 12px;background:radial-gradient(circle at 50% 35%,#60a5fa,#2563eb 58%,#1e40af);box-shadow:0 18px 42px rgba(37,99,235,.35);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;color:#fff;font-weight:900;font-size:16px;font-family:'Tajawal',sans-serif;touch-action:manipulation}
+.fingerprint-button{width:180px;height:180px;border-radius:50%;border:0;margin:10px auto 12px;background:radial-gradient(circle at 50% 35%,#cbd5e1,#64748b 58%,#475569);box-shadow:0 14px 34px rgba(100,116,139,.22);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;color:#fff;font-weight:900;font-size:16px;font-family:'Tajawal',sans-serif;touch-action:none;transition:background .25s,box-shadow .25s,transform .15s,opacity .2s}
 .fingerprint-lines{position:absolute;inset:32px;border-radius:50%;opacity:.8;background:repeating-radial-gradient(circle at center,transparent 0 8px,rgba(255,255,255,.5) 9px 10px)}
 .scan-line{position:absolute;left:26px;right:26px;height:3px;background:#bbf7d0;box-shadow:0 0 18px #bbf7d0;top:20px;opacity:0}
 .fingerprint-button.scanning .scan-line{opacity:1;animation:scan 1.35s ease-in-out infinite}
 .fingerprint-button.scanning{background:radial-gradient(circle at 50% 35%,#34d399,#10b981 58%,#047857)}
+.fingerprint-button.ready{background:radial-gradient(circle at 50% 35%,#6ee7b7,#10b981 58%,#047857);box-shadow:0 18px 42px rgba(16,185,129,.35);cursor:pointer}
+.fingerprint-button.locked{background:radial-gradient(circle at 50% 35%,#cbd5e1,#64748b 58%,#475569);box-shadow:0 12px 30px rgba(100,116,139,.18);cursor:not-allowed;opacity:.72}
+.fingerprint-button.holding{transform:scale(.97)}
+.fingerprint-button.holding .scan-line{opacity:1;animation:scan 1s ease-in-out infinite}
 .fingerprint-button.checked-in{background:radial-gradient(circle at 50% 35%,#6ee7b7,#10b981 58%,#047857);box-shadow:0 18px 42px rgba(16,185,129,.35)}
 .fingerprint-label{position:relative;z-index:2;max-width:90px;line-height:1.4}
 .status{font-size:14px;color:var(--text2);min-height:24px;font-weight:700}
@@ -96,7 +101,7 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--text);min
     </div>
 
     <div class="fingerprint-panel">
-      <button class="fingerprint-button" id="fingerprintButton" onpointerdown="startPunch()">
+      <button class="fingerprint-button locked" id="fingerprintButton" type="button" disabled onpointerdown="beginFingerprintHold(event)" onpointerup="cancelFingerprintHold(event)" onpointerleave="cancelFingerprintHold(event)" onpointercancel="cancelFingerprintHold(event)" onclick="event.preventDefault()">
         <span class="fingerprint-lines"></span>
         <span class="scan-line"></span>
         <span class="fingerprint-label">ضع اصبعك هنا</span>
@@ -134,20 +139,27 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
-let hrData = {employees:{},employers:{},fingerprintCodes:{},schedules:{}};
+let hrData = {employees:{},employers:{},fingerprintCodes:{},schedules:{},fingerprintPlaces:{}};
 let punches = [];
 let currentEmployee = null;
 let scanning = false;
 let pendingExitPermissionImage = '';
+let zoneWatchId = null;
+let zoneAllowed = false;
+let zoneStatusMessage = 'جاري التحقق من نطاق البصمة...';
+let currentZoneMatch = null;
+let lastKnownLocation = null;
+let holdTimer = null;
 
 const dayKeys = ['sun','mon','tue','wed','thu','fri','sat'];
 const branchNames = {surra:'فرع السرة',abulhasania:'فرع أبو الحصانية',yarmouk:'فرع اليرموك',fixed:'دوام ثابت'};
 
 db.ref('hrData').on('value', snap=>{
-  hrData = snap.val() || {employees:{},employers:{},fingerprintCodes:{},schedules:{}};
+  hrData = snap.val() || {employees:{},employers:{},fingerprintCodes:{},schedules:{},fingerprintPlaces:{}};
   if(currentEmployee){
     currentEmployee = hrData.employees?.[currentEmployee.id] || currentEmployee;
     renderApp();
+    if(lastKnownLocation) setZoneAvailability(resolveAllowedFingerprintPlace(lastKnownLocation));
   }
 });
 
@@ -205,9 +217,12 @@ function login(){
   document.getElementById('loginScreen').classList.add('hidden');
   document.getElementById('appScreen').classList.remove('hidden');
   renderApp();
+  startZoneWatch();
 }
 
 function logout(){
+  stopZoneWatch();
+  cancelFingerprintHold();
   currentEmployee = null;
   document.getElementById('codeInput').value = '';
   document.getElementById('loginScreen').classList.remove('hidden');
@@ -279,6 +294,16 @@ function getCurrentEmployer(dutyItem=getCurrentDutyItem()){
     || employers.find(employer=>employer.id === currentEmployee?.employerId || employer.name === currentEmployee?.employer);
 }
 
+function getFingerprintPlacesForEmployer(employer, dutyItem){
+  const employerId = employer?.id || dutyItem?.employerId || currentEmployee?.employerId || '';
+  const employerName = employer?.name || dutyItem?.employerName || currentEmployee?.employer || '';
+  return Object.values(hrData.fingerprintPlaces || {}).filter(place=>{
+    const ids = Array.isArray(place.employerIds) ? place.employerIds : [];
+    const names = Array.isArray(place.employerNames) ? place.employerNames : [];
+    return ids.includes(employerId) || names.includes(employerName) || place.employerId === employerId;
+  });
+}
+
 function distanceMeters(a,b){
   const earth = 6371000;
   const toRad = value=>value * Math.PI / 180;
@@ -297,25 +322,114 @@ function getDeviceLocation(){
       return;
     }
     navigator.geolocation.getCurrentPosition(
-      pos=>resolve({lat:pos.coords.latitude,lng:pos.coords.longitude,accuracy:pos.coords.accuracy}),
+      pos=>resolve({
+        lat:pos.coords.latitude,
+        lng:pos.coords.longitude,
+        accuracy:pos.coords.accuracy,
+        altitude:pos.coords.altitude,
+        altitudeAccuracy:pos.coords.altitudeAccuracy
+      }),
       ()=>reject(new Error('اسمح للتطبيق بالوصول إلى الموقع')),
       {enableHighAccuracy:true,timeout:12000,maximumAge:0}
     );
   });
 }
 
-async function ensureInsideEmployerZone(){
+function normalizeGeoPosition(pos){
+  return {
+    lat:pos.coords.latitude,
+    lng:pos.coords.longitude,
+    accuracy:pos.coords.accuracy,
+    altitude:pos.coords.altitude,
+    altitudeAccuracy:pos.coords.altitudeAccuracy
+  };
+}
+
+function resolveAllowedFingerprintPlace(current){
   const items = getTodayScheduleItems();
-  if(!items.length) throw new Error('لا يوجد دوام مسجل لك اليوم');
+  if(!items.length) return {allowed:false,message:'لا يوجد دوام مسجل لك اليوم'};
   const dutyItem = getCurrentDutyItem();
   const employer = getCurrentEmployer(dutyItem);
-  if(!employer?.location) throw new Error('لم يتم تحديد زون جهة العمل');
+  const places = getFingerprintPlacesForEmployer(employer, dutyItem);
+  if(!places.length) return {allowed:false,message:'لم يتم ربط مكان بصمة لهذه الجهة'};
+  const nearest = places
+    .map(place=>{
+      const center = {lat:Number(place.location?.lat),lng:Number(place.location?.lng)};
+      const radius = Number(place.radiusMeters) || 20;
+      const distance = Number.isFinite(center.lat) && Number.isFinite(center.lng) ? distanceMeters(current,center) : Infinity;
+      return {place,radius,distance};
+    })
+    .sort((a,b)=>a.distance-b.distance)[0];
+  if(!nearest || !Number.isFinite(nearest.distance)){
+    return {allowed:false,message:'مكان البصمة غير مكتمل'};
+  }
+  if(nearest.distance > nearest.radius){
+    return {allowed:false,message:`أنت خارج حدود البصمة بمسافة ${Math.round(nearest.distance)} متر`,nearest,dutyItem,employer,current};
+  }
+  return {allowed:true,message:'داخل نطاق البصمة، اضغط مطولاً لمدة ثانيتين',nearest,dutyItem,employer,current};
+}
+
+function setZoneAvailability(result){
+  zoneAllowed = !!result?.allowed;
+  zoneStatusMessage = result?.message || 'جاري التحقق من نطاق البصمة...';
+  currentZoneMatch = result || null;
+  renderPunchButtonState();
+}
+
+function startZoneWatch(){
+  stopZoneWatch();
+  zoneAllowed = false;
+  currentZoneMatch = null;
+  zoneStatusMessage = 'جاري التحقق من نطاق البصمة...';
+  renderPunchButtonState();
+  if(!navigator.geolocation){
+    setZoneAvailability({allowed:false,message:'الموقع غير مدعوم في هذا الجهاز'});
+    return;
+  }
+  zoneWatchId = navigator.geolocation.watchPosition(pos=>{
+    const current = normalizeGeoPosition(pos);
+    lastKnownLocation = current;
+    setZoneAvailability(resolveAllowedFingerprintPlace(current));
+  },()=>{
+    setZoneAvailability({allowed:false,message:'اسمح للتطبيق بالوصول إلى الموقع'});
+  },{
+    enableHighAccuracy:true,
+    timeout:15000,
+    maximumAge:2500
+  });
+}
+
+function stopZoneWatch(){
+  if(zoneWatchId !== null && navigator.geolocation){
+    navigator.geolocation.clearWatch(zoneWatchId);
+  }
+  zoneWatchId = null;
+  zoneAllowed = false;
+  currentZoneMatch = null;
+  lastKnownLocation = null;
+}
+
+async function ensureInsideEmployerZone(){
   const current = await getDeviceLocation();
-  const center = {lat:Number(employer.location.lat),lng:Number(employer.location.lng)};
-  const radius = Number(employer.zoneRadius) || 150;
-  const distance = distanceMeters(current,center);
-  if(distance > radius) throw new Error(`أنت خارج زون الفرع بمسافة ${Math.round(distance)} متر`);
-  return {lat:current.lat,lng:current.lng,accuracy:current.accuracy,distance:Math.round(distance),zoneRadius:radius,employerId:employer.id,employerName:employer.name,dutyFrom:dutyItem?.from || '',dutyTo:dutyItem?.to || '',zone:dutyItem?.zone || ''};
+  const result = resolveAllowedFingerprintPlace(current);
+  setZoneAvailability(result);
+  if(!result.allowed) throw new Error(result.message || 'أنت خارج نطاق البصمة');
+  const {nearest, dutyItem, employer} = result;
+  return {
+    lat:current.lat,
+    lng:current.lng,
+    accuracy:current.accuracy,
+    altitude:current.altitude,
+    altitudeAccuracy:current.altitudeAccuracy,
+    distance:Math.round(nearest.distance),
+    radiusMeters:nearest.radius,
+    fingerprintPlaceId:nearest.place.id || '',
+    employerId:employer?.id || dutyItem?.employerId || currentEmployee?.employerId || '',
+    employerName:employer?.name || dutyItem?.employerName || currentEmployee?.employer || '',
+    dutyFrom:dutyItem?.from || '',
+    dutyTo:dutyItem?.to || '',
+    zone:dutyItem?.zone || ''
+  };
 }
 
 function renderApp(){
@@ -336,6 +450,12 @@ function renderApp(){
 
 async function startPunch(){
   if(scanning || !currentEmployee) return;
+  if(!zoneAllowed){
+    document.getElementById('punchStatus').className = 'status err';
+    document.getElementById('punchStatus').textContent = zoneStatusMessage || 'أنت خارج نطاق البصمة';
+    renderPunchButtonState();
+    return;
+  }
   const checkedIn = isCheckedIn();
   let type = checkedIn ? 'out' : 'in';
   if(checkedIn && !canExitNormally() && !pendingExitPermissionImage){
@@ -349,57 +469,107 @@ async function startPunch(){
   button.classList.remove('checked-in');
   status.className = 'status';
   status.textContent = 'جاري التحقق من الموقع...';
-  setTimeout(async ()=>{
-    const now = new Date();
-    const date = formatDateInput(now);
-    const time = formatTimeInput(now);
-    try{
-      const location = await ensureInsideEmployerZone();
-      status.textContent = 'جاري تحليل البصمة...';
-      const payload = {
-        empId:currentEmployee.id,
-        empName:currentEmployee.name,
-        date,
-        time,
-        iso:now.toISOString(),
-        type,
-        location,
-        createdAt:firebase.database.ServerValue.TIMESTAMP
-      };
-      if(type === 'out' && pendingExitPermissionImage){
-        payload.exitPermission = true;
-        payload.exitPermissionImage = pendingExitPermissionImage;
-      }
-      const ref = await db.ref('fingerprintPunches').push(payload);
-      punches.push({id:ref.key,...payload});
-      pendingExitPermissionImage = '';
-      hideExitPanel();
-      status.className = 'status ok';
-      status.textContent = type === 'in' ? 'تم تسجيل بصمة الدخول' : 'تم تسجيل بصمة الخروج';
-      speakThanks();
-    } catch(err){
-      console.error(err);
-      status.className = 'status err';
-      status.textContent = err.message || 'تعذر تسجيل البصمة';
-    } finally {
-      button.classList.remove('scanning');
-      scanning = false;
-      renderPunchButtonState();
+  const now = new Date();
+  const date = formatDateInput(now);
+  const time = formatTimeInput(now);
+  try{
+    const location = await ensureInsideEmployerZone();
+    status.textContent = 'جاري تحليل البصمة...';
+    await new Promise(resolve=>setTimeout(resolve,250));
+    const payload = {
+      empId:currentEmployee.id,
+      empName:currentEmployee.name,
+      date,
+      time,
+      iso:now.toISOString(),
+      type,
+      location,
+      createdAt:firebase.database.ServerValue.TIMESTAMP
+    };
+    if(type === 'out' && pendingExitPermissionImage){
+      payload.exitPermission = true;
+      payload.exitPermissionImage = pendingExitPermissionImage;
     }
-  },1500);
+    const ref = await db.ref('fingerprintPunches').push(payload);
+    punches.push({id:ref.key,...payload});
+    pendingExitPermissionImage = '';
+    hideExitPanel();
+    status.className = 'status ok';
+    status.textContent = type === 'in' ? 'تم تسجيل بصمة الدخول' : 'تم تسجيل بصمة الخروج';
+    speakThanks();
+  } catch(err){
+    console.error(err);
+    status.className = 'status err';
+    status.textContent = err.message || 'تعذر تسجيل البصمة';
+  } finally {
+    button.classList.remove('scanning');
+    scanning = false;
+    renderPunchButtonState();
+  }
 }
 
 function renderPunchButtonState(){
   const button = document.getElementById('fingerprintButton');
+  if(!button) return;
   const label = button.querySelector('.fingerprint-label');
   const checkedIn = isCheckedIn();
-  button.classList.toggle('checked-in', checkedIn);
+  button.disabled = scanning || !zoneAllowed;
+  button.classList.toggle('locked', !zoneAllowed);
+  button.classList.toggle('ready', zoneAllowed && !scanning);
+  button.classList.toggle('checked-in', checkedIn && zoneAllowed);
+  if(!zoneAllowed){
+    label.textContent = 'خارج النطاق';
+    const status = document.getElementById('punchStatus');
+    status.className = 'status err';
+    status.textContent = zoneStatusMessage;
+    return;
+  }
   if(checkedIn){
     label.textContent = pendingExitPermissionImage ? 'بصمة خروج بإذن' : 'تم تسجيل الدخول';
+    document.getElementById('punchStatus').className = 'status ok';
     document.getElementById('punchStatus').textContent = canExitNormally() ? 'يمكنك تسجيل بصمة الخروج الآن' : 'لا يمكن تسجيل الخروج إلا بإذن أو قبل نهاية الدوام ب 15 دقيقة';
   } else {
     label.textContent = 'ضع اصبعك هنا';
+    document.getElementById('punchStatus').className = 'status ok';
+    document.getElementById('punchStatus').textContent = zoneStatusMessage;
   }
+}
+
+function beginFingerprintHold(event){
+  event.preventDefault();
+  if(scanning || !currentEmployee) return;
+  if(!zoneAllowed){
+    document.getElementById('punchStatus').className = 'status err';
+    document.getElementById('punchStatus').textContent = zoneStatusMessage || 'أنت خارج نطاق البصمة';
+    return;
+  }
+  const checkedIn = isCheckedIn();
+  if(checkedIn && !canExitNormally() && !pendingExitPermissionImage){
+    showExitPanel();
+    return;
+  }
+  const button = document.getElementById('fingerprintButton');
+  const label = button.querySelector('.fingerprint-label');
+  button.setPointerCapture?.(event.pointerId);
+  clearTimeout(holdTimer);
+  button.classList.add('holding');
+  label.textContent = 'استمر ثانيتين';
+  document.getElementById('punchStatus').className = 'status ok';
+  document.getElementById('punchStatus').textContent = 'استمر بالضغط لتسجيل البصمة';
+  holdTimer = setTimeout(()=>{
+    holdTimer = null;
+    button.classList.remove('holding');
+    startPunch();
+  },2000);
+}
+
+function cancelFingerprintHold(){
+  if(!holdTimer) return;
+  clearTimeout(holdTimer);
+  holdTimer = null;
+  const button = document.getElementById('fingerprintButton');
+  button?.classList.remove('holding');
+  renderPunchButtonState();
 }
 
 function showExitPanel(){
